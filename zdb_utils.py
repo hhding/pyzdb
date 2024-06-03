@@ -6,23 +6,23 @@ import sys
 
 def debug_print0(message, verbose=0, fd=sys.stderr):
     if verbose >= 0:
-        print(message, file=fd)
+        print("DBG0:", message, file=fd)
 
 def debug_print1(message, verbose, fd=sys.stderr):
     if verbose >= 1:
-        print(message, file=fd)
+        print("DBG1:", message, file=fd)
 
 def debug_print2(message, verbose, fd=sys.stderr):
     if verbose >= 2:
-        print(message, file=fd)
+        print("DBG2:", message, file=fd)
 
 def debug_print3(message, verbose, fd=sys.stderr):
     if verbose >= 3:
-        print(message, file=fd)
+        print("DBG3:", message, file=fd)
 
 def debug_print4(message, verbose, fd=sys.stderr):
     if verbose >= 4:
-        print(message, file=fd)
+        print("DBG4:", message, file=fd)
 
 def roundup(x, y):
     return math.ceil(x/y) * y

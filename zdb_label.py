@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import struct
 from collections import OrderedDict
 import math

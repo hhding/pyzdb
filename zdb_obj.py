@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import struct
 from collections import namedtuple
 import argparse
@@ -12,11 +14,14 @@ def print_zip(alist, blist, indent="\t"):
 def dump_none(obj, buf=None, verbose=0):
     debug_print2("call dump_none", verbose=verbose)
 
+def dump_sa_layouts(obj, buf=None, verbose=0):
+    dump_zap(obj, buf, verbose)
+
 def fmt_base(base="d"):
     def func(value):
         if type(value) == int:
             return f"{value:{base}}"
-        return "".join(f"{v:02x}" for v in value)
+        return " ".join(f"{v:02x}" for v in value)
     return func
 
 def dump_zap(obj, buf=None, verbose=0, fmt_func=fmt_base('d')):
@@ -36,13 +41,20 @@ def dump_zpldir(obj, buf=None, verbose=0):
         print(f"\t{name} = {obj_id} (type: {file_type})")
 
 def dump_dnode(obj, buf=None, verbose=0):
-    debug_print0("call dump_dnode", verbose=verbose)
+    debug_print0("call dump_dnode # not implemented yet..", verbose=verbose)
 
 def dump_dmu_objset(obj, buf=None, verbose=0):
     debug_print0("call dump_objset", verbose=verbose)
 
 def dump_znode(obj, buf=None, verbose=0):
     debug_print0("call dump_znode", verbose=verbose)
+    magic, layout, size = struct.unpack_from("IHH", buf)
+    debug_print0(f"{bin(layout)}", verbose=verbose)
+    assert magic == 0x2f505a
+    hdrsz = (layout >> 10)*8
+    layout = layout & ((1<<10) - 1)
+    print(hdrsz, layout, size, file=sys.stderr)
+    debug_print0(f"    decode znode in bonus buffer length: {len(buf)}", verbose=verbose)
 
 def dump_dsl_dir(obj, buf=None, verbose=0):
     if buf:
@@ -58,7 +70,7 @@ def dump_bpobj(obj, buf=None, verbose=0):
     print_zip(names, values)
     
 def dump_uint8(obj, buf=None, verbose=0):
-    debug_print0("call dump_uint8", verbose=verbose)
+    debug_print0(f"call dump_uint8 at object BPs = {obj.bps}", verbose=verbose)
     debug_print0("=========== raw_data start ============", verbose=verbose)
     for blk in obj.iter_blks():
         os.write(1, blk.buf)
@@ -120,7 +132,7 @@ dmu_ot_info = [
     [dump_znode,	"System attributes"],
     [dump_zap,	"SA master node"],
     [dump_none,	"SA attr registration"],
-    [dump_none,	"SA attr layouts"],
+    [dump_sa_layouts,	"SA attr layouts"],
     [dump_zap,	"scan translations"],
     [dump_none,	"deduplicated block"],
     [dump_zap,	"DSL deadlist map"],
@@ -190,11 +202,10 @@ class DMUObject:
         dump_func(self, verbose=verbose)
 
     def dump_raw(self, verbose):
-        if verbose >= 3:
-            return os.write(1, self.data)
+        if sys.stdout.isatty():
+            print(f"dump_raw: length: {len(self.data):x}, redirect or pipe to output data")
         else:
-            print(f"dump_raw: length: {len(self.data):x}, verbose >= 3 to show data")
-            return
+            return os.write(1, self.data)
 
     def get_bonus_data(self):
         start = 64 + 128
@@ -214,7 +225,7 @@ class DMUObject:
             return [-1, -1, None]
         if self.prop.nlevels == 1:
             return self.bps[blkid].get_blkdata(0)
-        return self.bps[0].get_blkdata(blkid)
+        return self.bps[0].get_blkdata(blkid, nlevels=self.prop.nlevels)
 
     def iter_blks(self):
         for blkid in range(self.prop.maxblkid + 1):
@@ -254,13 +265,15 @@ class DMUObjset(DMUObject):
     }
 
     def dump_id(self, object_id, verbose=0):
+        obj_type = self.get_objset_type()
+        debug_print0(f"OBJSET: {self.type2name.get(obj_type)}, BP = {self.bps}", verbose)
         obj = self.get_object(object_id)
-        debug_print1(fr'dumping id #{object_id} "{obj}" from objectset', verbose)
+        debug_print0(f'dumping id #{object_id} "{obj}" from object set', verbose)
         obj.dump_raw(verbose)
 
     def dump(self, verbose=0):
         obj_type = self.get_objset_type()
-        debug_print2(f"OBJSET {self.type2name.get(obj_type)}", verbose)
+        debug_print0(f"OBJSET: {self.type2name.get(obj_type)}, BP = {self.bps}", verbose)
         for obj_id, obj in self.iter_objects(verbose=verbose):
             debug_print0(f"{obj_id:>4d} {obj}", verbose=verbose, fd=sys.stdout)
 
@@ -282,7 +295,7 @@ class DMUObjset(DMUObject):
     def iter_objects(self, verbose):
         obj_per_blk = 32
         for blockdata in self.iter_blks():
-            debug_print2(f"Dumpling block #{blockdata.id} @ {blockdata.vdev}:{blockdata.offset:x}", verbose)
+            debug_print0(f"Dumpling block #{blockdata.id} @ {blockdata.vdev}:{blockdata.offset:x}", verbose)
             obj_id = blockdata.id * obj_per_blk
             for i in range(obj_per_blk):
                 obj = DMUObject(blockdata.buf[i*512:i*512+512])

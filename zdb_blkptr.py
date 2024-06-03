@@ -58,7 +58,10 @@ class BlkPtr:
         buf = self.data
         return buf[:6*8] + buf[7*8:0xa*8] + buf[0xb*8:128]
 
-    def get_blkdata(self, blkid, verbose=0):
+    def get_blkdata(self, blkid, nlevels=1, verbose=0):
+        if nlevels == self.lvl + 1:
+            if os.environ.get("DEBUG_ZFS_BLK"):
+                debug_print0(f"Calling read block #{blkid}, total level {nlevels}", verbose)
         if self.prop.x != 0:
             raise NotImplementedError("BlkPTR encrypted data")
         if self.embd:
@@ -67,19 +70,20 @@ class BlkPtr:
             return self.BlockData(blkid, -1, -1, buf)
         
         if self.prop.fill == 0:
-            debug_print4(f"BlkPTR: skip empty block: L{self.lvl} {blkid}", verbose)
+            if os.environ.get("DEBUG_ZFS_BLK"):
+                debug_print1(f"BlkPTR: skip empty block: L{self.lvl} {blkid}", verbose)
             return self.BlockData(blkid, -1, -1, None)
 
-        debug_print3(f"BP: {self.desc(verbose)}", verbose)
         dva = self.dva[0]
-        debug_print2(f"BlkPtr read blkid: {blkid} L{self.lvl} {dva}", verbose)
+        if os.environ.get("DEBUG_ZFS_BLK"):
+            debug_print0(f"{'  '*(nlevels - self.lvl -1)}BlkPtr block #{blkid} L{self.lvl} {dva}", verbose)
         buf = vdev_read(dva.vdev, dva.offset, self.psize, self.lsize, verbose=verbose)
         if self.lvl == 0:
             return self.BlockData(blkid, dva.vdev, dva.offset, buf)
         # recursive to next level data block
         iblk_offset = (blkid // (self.iblk_cnt**(self.lvl-1))) * self.bs
         blkptr = BlkPtr(buf[iblk_offset:iblk_offset+self.bs])
-        return blkptr.get_blkdata(blkid, verbose)
+        return blkptr.get_blkdata(blkid, nlevels, verbose)
 
     def desc(self, verbose=0):
         assert self.prop.type != 0, "BLKPTR Type is 0"

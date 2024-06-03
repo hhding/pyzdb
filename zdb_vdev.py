@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import argparse
 import os
 import json
@@ -100,7 +102,7 @@ class VDEVRaidZ:
 
     def read_chunks(self, io_offset, io_size, verbose=0):
         rr = self.vdev_raiz_map_alloc(io_offset, io_size, self.ashift, self.dcols, self.nparity)
-        debug_print1(json.dumps(rr, indent=4), verbose)
+        debug_print3(json.dumps(rr, indent=4), verbose)
         read_results = []
         for rc in rr['rr_col'][rr['rr_firstdatacol']:]:
             rc_size = rc['rc_size']
@@ -111,6 +113,7 @@ class VDEVRaidZ:
         return read_results
 
     def read(self, io_offset, io_size, verbose=0):
+        debug_print2(f"Raidz{self.nparity} read vdev: {self.id}, disk: {self.dcols}, ashift: {self.ashift} ({1<<self.ashift})", verbose)
         results = self.read_chunks(io_offset, io_size, verbose)
         data = b''
         for r in results:
@@ -148,7 +151,7 @@ class VDEV:
         lsize, psize = self.get_two_int(size_info, base)
         vdev_id = int(dev, base)
         io_offset = int(io_offset, base)
-        debug_print1(f"Raidz read at ptr: {addr}", verbose)
+        debug_print1(f"VDEV read at ptr: {addr}", verbose)
         return self.read_data(vdev_id, io_offset, psize, lsize, verbose)
 
     def read_data(self, vdev_id, io_offset, io_size, lsize, verbose=0):
@@ -165,7 +168,7 @@ class VDEV:
 def parse_arg():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="nvlist.json")
-    parser.add_argument("--read_ptr")
+    parser.add_argument("--ptr")
     parser.add_argument("--verbose", type=int, default=0)
     args = parser.parse_args()
     return args
@@ -181,9 +184,11 @@ def vdev_read(vdev_id, offset, io_size, lsize, vdev_conf="nvlist.json", verbose=
 def main():
     args = parse_arg()
     vdev = get_vdev(args.config)
-    if args.read_ptr:
-        data = vdev.read_ptr(args.read_ptr, args.verbose)
+    if args.ptr:
+        data = vdev.read_ptr(args.ptr, args.verbose)
+        debug_print1("=============== Raw data start =================", verbose=args.verbose)
         os.write(1, data)
+        debug_print1("=============== Raw data end =================", verbose=args.verbose)
 
 if __name__ == '__main__':
     main()
