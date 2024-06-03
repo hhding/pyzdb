@@ -45,10 +45,11 @@ def dump_znode(obj, buf=None, verbose=0):
     debug_print0("call dump_znode", verbose=verbose)
 
 def dump_dsl_dir(obj, buf=None, verbose=0):
-    debug_print0("call dump_dsl_dir", verbose=verbose)
-    names = "creation_time head_dataset_obj parent_dir_obj origin_obj child_dir_zapobj used_bytes compressed_bytes uncompressed_bytes quota reserved props_zapobj deleg_zapobj flags used_breakdown[HEAD] used_breakdown[SNAP] used_breakdown[CHILD] used_breakdown[CHILD_RSRV] used_breakdown[REFRSRV] clones".split()
-    values = struct.unpack_from("20Q", buf)
-    print_zip(names, values)
+    if buf:
+        debug_print0("call dump_dsl_dir", verbose=verbose)
+        names = "creation_time head_dataset_obj parent_dir_obj origin_obj child_dir_zapobj used_bytes compressed_bytes uncompressed_bytes quota reserved props_zapobj deleg_zapobj flags used_breakdown[HEAD] used_breakdown[SNAP] used_breakdown[CHILD] used_breakdown[CHILD_RSRV] used_breakdown[REFRSRV] clones".split()
+        values = struct.unpack_from("20Q", buf)
+        print_zip(names, values)
 
 def dump_bpobj(obj, buf=None, verbose=0):
     debug_print0("call dump_bpobj", verbose=verbose)
