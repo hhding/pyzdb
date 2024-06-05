@@ -12,8 +12,8 @@ class VDEVLeaf:
         self.path =  kwargs['path']
         assert self.type in ["file"]
 
-    def read(self, offset, size, verbose=0):
-        debug_print2(f"VDEVLeaf read at #{self.id} path: {self.path} offset: 0x{offset:x}+0x400000 size={size:x}", verbose)
+    def read(self, offset, size):
+        debug_print1(f"VDEVLeaf read at #{self.id} path: {self.path} offset: 0x{offset:x}+0x400000 size={size:x}", DEBUG_ZFS_VDEV)
         with open(self.path, "rb") as f:
             f.seek(offset + 0x400000)
             data = f.read(size)
@@ -100,21 +100,21 @@ class VDEVRaidZ:
         rr['rr_col'] = rr_col
         return rr
 
-    def read_chunks(self, io_offset, io_size, verbose=0):
+    def read_chunks(self, io_offset, io_size):
         rr = self.vdev_raiz_map_alloc(io_offset, io_size, self.ashift, self.dcols, self.nparity)
-        debug_print3(json.dumps(rr, indent=4), verbose)
+        debug_print2(json.dumps(rr, indent=4), DEBUG_ZFS_VDEV)
         read_results = []
         for rc in rr['rr_col'][rr['rr_firstdatacol']:]:
             rc_size = rc['rc_size']
             if rc_size > 0:
                 devidx = rc['rc_devidx']
                 dev = self.children[devidx]
-                read_results.append(dev.read(rc['rc_offset'], rc_size, verbose))
+                read_results.append(dev.read(rc['rc_offset'], rc_size))
         return read_results
 
-    def read(self, io_offset, io_size, verbose=0):
-        debug_print2(f"Raidz{self.nparity} read vdev: {self.id}, disk: {self.dcols}, ashift: {self.ashift} ({1<<self.ashift})", verbose)
-        results = self.read_chunks(io_offset, io_size, verbose)
+    def read(self, io_offset, io_size):
+        debug_print1(f"Raidz{self.nparity} read vdev: {self.id}, disk: {self.dcols}, ashift: {self.ashift} ({1<<self.ashift})", DEBUG_ZFS_VDEV)
+        results = self.read_chunks(io_offset, io_size)
         data = b''
         for r in results:
             data += r
@@ -146,18 +146,18 @@ class VDEV:
         s1 = int(info, base)
         return s1, callback(s1)
 
-    def read_ptr(self, addr, verbose=0, base=16):
+    def read_ptr(self, addr, base=16):
         dev, io_offset, size_info = addr.split(":")
         lsize, psize = self.get_two_int(size_info, base)
         vdev_id = int(dev, base)
         io_offset = int(io_offset, base)
-        debug_print1(f"VDEV read at ptr: {addr}", verbose)
-        return self.read_data(vdev_id, io_offset, psize, lsize, verbose)
+        debug_print0(f"VDEV read at ptr: {addr}", DEBUG_ZFS_VDEV)
+        return self.read_data(vdev_id, io_offset, psize, lsize)
 
-    def read_data(self, vdev_id, io_offset, io_size, lsize, verbose=0):
+    def read_data(self, vdev_id, io_offset, io_size, lsize):
         vdev = self.vdev_dict[vdev_id]
         vdev_size = roundup(io_size, vdev.min_block_size)
-        data = vdev.read(io_offset, vdev_size, verbose)[:io_size]
+        data = vdev.read(io_offset, vdev_size)[:io_size]
         data_len = len(data)
         assert io_size == data_len, f"{io_size} should eq {data_len}"
         if data_len == lsize:
@@ -169,7 +169,6 @@ def parse_arg():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="nvlist.json")
     parser.add_argument("--ptr")
-    parser.add_argument("--verbose", type=int, default=0)
     args = parser.parse_args()
     return args
 
@@ -177,18 +176,16 @@ def get_vdev(config_path):
     with open(config_path) as f:
         return VDEV(json.load(f))
 
-def vdev_read(vdev_id, offset, io_size, lsize, vdev_conf="nvlist.json", verbose=0):
+def vdev_read(vdev_id, offset, io_size, lsize, vdev_conf="nvlist.json"):
     vdev = get_vdev(vdev_conf)
-    return vdev.read_data(vdev_id, offset, io_size, lsize, verbose)
+    return vdev.read_data(vdev_id, offset, io_size, lsize)
 
 def main():
     args = parse_arg()
     vdev = get_vdev(args.config)
     if args.ptr:
-        data = vdev.read_ptr(args.ptr, args.verbose)
-        debug_print1("=============== Raw data start =================", verbose=args.verbose)
+        data = vdev.read_ptr(args.ptr)
         os.write(1, data)
-        debug_print1("=============== Raw data end =================", verbose=args.verbose)
 
 if __name__ == '__main__':
     main()

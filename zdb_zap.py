@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import struct
 import os
 from collections import namedtuple
@@ -24,7 +22,7 @@ class ZapCommon:
     def __init__(self, buf):
         self.buf = buf
 
-    def iter_ent(self, obj, verbose=0):
+    def iter_ent(self, obj):
         return []
 
 class MicroZap(ZapCommon):
@@ -36,14 +34,14 @@ class MicroZap(ZapCommon):
         mze_value, mze_cd, mze_name = struct.unpack_from(f"QIxx{self.mzap_name_len}s", buf, offset)
         return mze_value, mze_cd, mze_name
     
-    def iter_ent(self, obj, verbose=0):
-        debug_print0("microzap:")
+    def iter_ent(self, obj):
+        debug_print1("microzap:", DEBUG_ZFS_ZAP)
         buf_len = len(self.buf)
         offset = 64
         while offset < buf_len:
             value, cd, name = self.decode_ent(self.buf, offset)
             if name[0] != 0:
-                yield value, cd, name.decode()
+                yield name.decode().rstrip('\x00'), value
             offset += self.mzap_ent_len
         return
 
@@ -87,7 +85,7 @@ class LeafZap(ZapCommon):
             return zla.la_array
         return zla.la_array + self.get_zla(zla.la_next)
 
-    def iter_ent(self, obj, verbose=0):
+    def iter_ent(self, obj):
         pack_size = {1: "B", 2: "H", 4: "I", 8: "Q"}
         for idx in self.entries:
             zle = self.get_zle(idx)
@@ -98,7 +96,7 @@ class LeafZap(ZapCommon):
             if zle.le_value_numints == 1:
                 value = value_list[0]
             else:
-                value = value_list
+                value = list(value_list)
             yield name, value
 
 
@@ -113,9 +111,9 @@ class FatZap(ZapCommon):
         self.hdr = self.ZapHdr(*struct.unpack_from("13Q", buf))
         assert self.hdr.zt_numblks == 0, "Only embed ptr table is supported"
 
-    def iter_ent(self, obj, verbose=0):
-        debug_print0("fatzap:")
-        debug_print2(self.hdr, verbose=verbose)
+    def iter_ent(self, obj):
+        debug_print1("iterating fatzap:", DEBUG_ZFS_ZAP)
+        debug_print2(f"FatZap header: {self.hdr}", DEBUG_ZFS_ZAP)
         buf_len = len(self.buf)
         half_len = buf_len // 2
         blkid_list = []
@@ -126,6 +124,6 @@ class FatZap(ZapCommon):
                 blkid_list.append(blkid)
                 blkdata = obj.read_blk(blkid)
                 leaf = LeafZap(blkdata.buf)
-                for name, value in leaf.iter_ent(obj, verbose=verbose):
-                    yield value, None, name
+                for name, value in leaf.iter_ent(obj):
+                    yield name[:-1], value
         
