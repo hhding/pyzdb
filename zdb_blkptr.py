@@ -58,7 +58,7 @@ class BlkPtr:
         buf = self.data
         return buf[:6*8] + buf[7*8:0xa*8] + buf[0xb*8:128]
 
-    def get_blkdata(self, blkid, nlevels=1, verbose=0):
+    def get_blkdata(self, blkid, nlevels=1):
         if self.prop.x != 0:
             raise NotImplementedError("BlkPTR encrypted data")
         if self.embd:
@@ -79,29 +79,22 @@ class BlkPtr:
         # recursive to next level data block
         iblk_offset = (blkid // (self.iblk_cnt**(self.lvl-1))) * self.bs
         blkptr = BlkPtr(buf[iblk_offset:iblk_offset+self.bs])
-        return blkptr.get_blkdata(blkid, nlevels, verbose)
+        return blkptr.get_blkdata(blkid, nlevels)
 
-    def desc(self, verbose=0):
+    def desc(self):
         assert self.prop.type != 0, "BLKPTR Type is 0"
 
         if self.embd == 1:
             return f"[L{self.lvl} {self.prop.type} EMBD {self.lsize:x}L/{self.psize}P]"
 
-        misc = ''
-        if verbose == 0:
-            dva = self.dva[0].desc(self.lsize, self.psize)
-        elif verbose == 1:
-            dva = " ".join([d.desc(self.lsize, self.psize) for d in self.dva])
-        else:
-            dva = " ".join([d.desc() for d in self.dva])
-            misc = f" size={self.lsize:x}L/{self.psize:x}P chksum={self.get_checksum()} {self.prop}"
-        return f"[L{self.lvl} {self.prop.type} {dva}{misc}]"
+        dva = " ".join([d.desc(self.lsize, self.psize) for d in self.dva])
+        return f"[L{self.lvl} {self.prop.type} {dva[0]}]"
 
     def get_checksum(self):
         return ":".join([f"{int(x):x}" for x in self.fields[-4:]])
 
-    def show(self, verbose=0):
-        print(self.desc(verbose))
+    def show(self):
+        print(self.desc())
 
     def __repr__(self):
         return self.desc()
