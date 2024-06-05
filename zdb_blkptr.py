@@ -31,7 +31,8 @@ class BlkPtr:
         self.dva = []
         for idx in range(3):
             dva = DVA(idx, [fields[2*idx], fields[2*idx+1]])
-            self.dva.append(dva)
+            if dva.asize > 0:
+                self.dva.append(dva)
 
         prop_int = fields[6]
         self.embd = bits_get(prop_int, 39, 1) 
@@ -87,8 +88,8 @@ class BlkPtr:
         if self.embd == 1:
             return f"[L{self.lvl} {self.prop.type} EMBD {self.lsize:x}L/{self.psize}P]"
 
-        dva = " ".join([d.desc(self.lsize, self.psize) for d in self.dva])
-        return f"[L{self.lvl} {self.prop.type} {dva[0]}]"
+        dva = self.dva[0].desc(self.lsize, self.psize)
+        return f"[L{self.lvl} {self.prop.type} {dva}]"
 
     def get_checksum(self):
         return ":".join([f"{int(x):x}" for x in self.fields[-4:]])
