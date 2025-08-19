@@ -94,9 +94,9 @@ class BlkPtr:
 
         dva = self.dva[0]
         debug_print2(f"{'  '*(nlevels - self.lvl -1)}BlkPtr: L{self.lvl} {dva}", DEBUG_ZFS_BLK)
-        raw_buf = vdev_read(dva.vdev_id, dva.offset, self.psize)
+        raw_buf = vdev_read(dva.vdev, dva.offset, self.psize)
         assert fletcher4(raw_buf) == self.checksum
-        buf = self.decompress_dict[self.prop.comp](raw_buf, self.lsize)
+        buf = self.decompress_dict[f"{self.prop.comp}"](raw_buf, self.lsize)
 
         if self.lvl == 0:
             debug_print1(f"ZFS_BLK: L{self.lvl} {dva}", DEBUG_ZFS_BLK)
@@ -138,6 +138,7 @@ class BlkPtr:
         else:
             raw_buf = vdev_read(vdev_id, io_offset, psize)
 
+        print(lsize)
         buf = cls.decompress_dict[decompress](raw_buf, lsize)
         if 'c' in opcode:
             print(f"cksum={fletcher4(raw_buf)}", file=sys.stderr)
