@@ -29,8 +29,8 @@ As Linux does not have a tool like mdb, so I write these small scripts to help p
 # $ zdb -l -uuuu zpool
 # read bp
 # $ zdb -R poolname vdev:offset:[<lsize>/]<psize>[:flags]
-#     if psize < lsize, "d" in flags, note flag "c" is conflict with "d"
+#     if psize < lsize, "d" should be in flags
 #     if ptr is not L0, you can play with flags "di"; because meta is always compressed
 #        it will dump next level block pointer (bp)
-
+#     add flag "c" to calc checksum. note: flag "c" is conflict with "d", because checksum should be calculated from raw data
 ```
