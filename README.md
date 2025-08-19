@@ -25,9 +25,10 @@ As Linux does not have a tool like mdb, so I write these small scripts to help p
 ./zdb_vdev.py --ptr 0:1102b4e13400:1000/200:dr | ./zdb_obj.py --obj_id 1
 
 # some zdb trick
-# zdb -l -uuuu zpool ; dump uberlock and rootbp
+# dump uberlock and rootbp
+# $ zdb -l -uuuu zpool
 # read bp
-# zdb -R poolname vdev:offset:[<lsize>/]<psize>[:flags]
+# $ zdb -R poolname vdev:offset:[<lsize>/]<psize>[:flags]
 #     if psize < lsize, "d" in flags, note flag "c" is conflict with "d"
 #     if ptr is not L0, you can play with flags "di"; because meta is always compressed
 #        it will dump next level block pointer (bp)
