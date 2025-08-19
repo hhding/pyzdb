@@ -10,7 +10,7 @@ class VDEVLeaf:
         self.id = kwargs['id']
         self.type = kwargs["type"]
         self.path =  kwargs['path']
-        assert self.type in ["file"]
+        assert self.type in ["file", "disk"]
 
     def read(self, offset, size):
         debug_print1(f"VDEVLeaf read at #{self.id} path: {self.path} offset: 0x{offset:x}+0x400000 size={size:x}", DEBUG_ZFS_VDEV)
@@ -100,27 +100,24 @@ class VDEVRaidZ:
         rr['rr_col'] = rr_col
         return rr
 
-    def read_chunks(self, io_offset, io_size):
-        rr = self.vdev_raiz_map_alloc(io_offset, io_size, self.ashift, self.dcols, self.nparity)
-        debug_print2(json.dumps(rr, indent=4), DEBUG_ZFS_VDEV)
-        read_results = []
+    def read_chunks(self, rr):
         for rc in rr['rr_col'][rr['rr_firstdatacol']:]:
             rc_size = rc['rc_size']
             if rc_size > 0:
                 devidx = rc['rc_devidx']
                 dev = self.children[devidx]
-                read_results.append(dev.read(rc['rc_offset'], rc_size))
-        return read_results
+                yield dev.read(rc['rc_offset'], rc_size)
 
     def read(self, io_offset, io_size):
         debug_print1(f"Raidz{self.nparity} read vdev: {self.id}, disk: {self.dcols}, ashift: {self.ashift} ({1<<self.ashift})", DEBUG_ZFS_VDEV)
-        results = self.read_chunks(io_offset, io_size)
+        rr = self.vdev_raiz_map_alloc(io_offset, io_size, self.ashift, self.dcols, self.nparity)
+        debug_print2(json.dumps(rr, indent=4), DEBUG_ZFS_VDEV)
         data = b''
-        for r in results:
-            data += r
+        for chunk in self.read_chunks(rr):
+            data += chunk
         return data
 
-class VDEV:
+class VDEVHandler:
     def __init__(self, nv_config_list):
         self.vdev_dict = dict()
         self.vdev_guid_dict = dict()
@@ -131,61 +128,38 @@ class VDEV:
             if vdev_id in self.vdev_dict:
                 assert self.vdev_guid_dict[vdev_id] == vdev_guid
                 continue
-            assert vdev_conf['type'] in ['raidz', 'file'], "Only raidz and file vdev are supported"
+            assert vdev_conf['type'] in ['raidz', 'file', 'disk'], "Only raidz and file vdev are supported"
             if vdev_conf['type'] == 'raidz':
                 vdev = VDEVRaidZ(**vdev_conf)
-            elif vdev_conf['type'] == 'file':
+            elif vdev_conf['type'] in ['file', 'disk']:
                 vdev = VDEVLeaf(**vdev_conf)
             self.vdev_dict[vdev_id] = vdev
             self.vdev_guid_dict[vdev_id] = vdev_guid
 
-    @staticmethod
-    def get_two_int(info, base, sep="/", callback=lambda x: x):
-        if sep in info:
-            return [int(x, base) for x in info.split(sep)]
-        s1 = int(info, base)
-        return s1, callback(s1)
-
-    def read_ptr(self, addr, base=16):
-        dev, io_offset, size_info = addr.split(":")
-        lsize, psize = self.get_two_int(size_info, base)
-        vdev_id = int(dev, base)
-        io_offset = int(io_offset, base)
-        debug_print0(f"VDEV read at ptr: {addr}", DEBUG_ZFS_VDEV)
-        return self.read_data(vdev_id, io_offset, psize, lsize)
-
-    def read_data(self, vdev_id, io_offset, io_size, lsize):
+    def read_vdev(self, vdev_id, io_offset, io_size):
         vdev = self.vdev_dict[vdev_id]
         vdev_size = roundup(io_size, vdev.min_block_size)
         data = vdev.read(io_offset, vdev_size)[:io_size]
-        data_len = len(data)
-        assert io_size == data_len, f"{io_size} should eq {data_len}"
-        if data_len == lsize:
-            return data
-        else:
-            return lz4_decompress(data, lsize)
+        assert io_size == len(data)
+        return data
 
 def parse_arg():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="nvlist.json")
-    parser.add_argument("--ptr")
+    parser.add_argument("--config", metavar="nvlist.json", default="nvlist.json")
+    parser.add_argument("--ptr", metavar="<vdev>:<offset>:<size>[:<flags>]", help="/path/to/file:0:200:r local file is also supported")
     args = parser.parse_args()
     return args
 
-def get_vdev(config_path):
-    with open(config_path) as f:
-        return VDEV(json.load(f))
 
-def vdev_read(vdev_id, offset, io_size, lsize, vdev_conf="nvlist.json"):
-    vdev = get_vdev(vdev_conf)
-    return vdev.read_data(vdev_id, offset, io_size, lsize)
+def vdev_read(vdev_id, offset, io_size, vdev_conf="nvlist.json"):
+    with open(vdev_conf) as f:
+        return VDEVHandler(json.load(f)).read_vdev(vdev_id, offset, io_size)
 
 def main():
     args = parse_arg()
-    vdev = get_vdev(args.config)
     if args.ptr:
-        data = vdev.read_ptr(args.ptr)
-        os.write(1, data)
+        from zdb_blkptr import BlkPtr
+        return BlkPtr.read_ptr(args.ptr)
 
 if __name__ == '__main__':
     main()

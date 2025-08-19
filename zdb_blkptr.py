@@ -2,6 +2,7 @@ import struct
 from collections import namedtuple
 from zdb_vdev import vdev_read
 from zdb_utils import *
+import argparse
 
 class DVA:
     def __init__(self, idx, data):
@@ -25,6 +26,15 @@ class DVA:
 class BlkPtr:
     bs = 128
     BlockData = namedtuple("BlockData", ["id", "vdev", "offset", "buf"])
+
+    cksum_dict = {
+        "7": fletcher4
+    }
+    decompress_dict = {
+        "2": lambda data, size: data,
+        "15": lz4_decompress
+    }
+
     def __init__(self, data):
         self.data = data
         fields = struct.unpack("@7Q16x7Q", data[:self.bs])
@@ -45,6 +55,8 @@ class BlkPtr:
             prop_offset_list = [(63, 1), (62, 1), (61, 1), (56, 5), (48, 8), (40, 8), (39, 1), (32, 7), (16, 16), (0, 16)]
             size_shift = 9
 
+        self.checksum = ":".join([f"{int(x):x}" for x in fields[-4:]])
+
         prop_list = list(fields[7:10]) + [bits_get(prop_int, o, l) for o, l in prop_offset_list]
         self.prop = namedtuple("BlkPtrProp", names)(*prop_list)
         self.fields = fields
@@ -58,6 +70,15 @@ class BlkPtr:
     def get_embddata(self):
         buf = self.data
         return buf[:6*8] + buf[7*8:0xa*8] + buf[0xb*8:128]
+
+    @classmethod
+    def vdev_read(cls, vdev_id, io_offset, psize, lsize, decompress_func, checksum=None):
+        buf = vdev_read(vdev_id, io_offset, psize)
+        _checksum = fletcher4(buf)
+        if checksum:
+            assert checksum == _checksum
+        _buf = cls.decompress_dict[decompress_func](buf, lsize)
+        return _buf, _checksum
 
     def get_blkdata(self, blkid, nlevels=1):
         if self.prop.x != 0:
@@ -73,7 +94,10 @@ class BlkPtr:
 
         dva = self.dva[0]
         debug_print2(f"{'  '*(nlevels - self.lvl -1)}BlkPtr: L{self.lvl} {dva}", DEBUG_ZFS_BLK)
-        buf = vdev_read(dva.vdev, dva.offset, self.psize, self.lsize)
+        raw_buf = vdev_read(dva.vdev_id, dva.offset, self.psize)
+        assert fletcher4(raw_buf) == self.checksum
+        buf = self.decompress_dict[self.prop.comp](raw_buf, self.lsize)
+
         if self.lvl == 0:
             debug_print1(f"ZFS_BLK: L{self.lvl} {dva}", DEBUG_ZFS_BLK)
             return self.BlockData(blkid, dva.vdev, dva.offset, buf)
@@ -81,6 +105,49 @@ class BlkPtr:
         iblk_offset = (blkid // (self.iblk_cnt**(self.lvl-1))) * self.bs
         blkptr = BlkPtr(buf[iblk_offset:iblk_offset+self.bs])
         return blkptr.get_blkdata(blkid, nlevels)
+
+
+    @staticmethod
+    def get_two_int(info, base, sep="/", callback=lambda x: x):
+        if sep in info:
+            return [int(x, base) for x in info.split(sep)]
+        s1 = int(info, base)
+        return s1, callback(s1)
+
+    @classmethod
+    def read_ptr(cls, addr, base=16):
+        decompress = "2"
+        fields = addr.split(":")
+        dev, _io_offset, size_info = fields[:3]
+        if len(fields) == 4:
+            opcode = list(fields[3])
+        else:
+            opcode = ['r']
+
+        lsize, psize = cls.get_two_int(size_info, base)
+        if 'd' in opcode:
+            decompress = "15"
+
+        io_offset = int(_io_offset, base)
+        try:
+            vdev_id = int(dev, base)
+        except ValueError:
+            with open(dev, 'rb') as f:
+                f.seek(io_offset)
+                raw_buf = f.read(psize)
+        else:
+            raw_buf = vdev_read(vdev_id, io_offset, psize)
+
+        buf = cls.decompress_dict[decompress](raw_buf, lsize)
+        if 'c' in opcode:
+            print(f"cksum={fletcher4(raw_buf)}", file=sys.stderr)
+        if 'r' in opcode:
+            std_write(buf)
+        if 'i' in opcode:
+            cnt = len(buf) // BlkPtr.bs
+            for i in range(cnt):
+                bp = BlkPtr(buf[i*BlkPtr.bs : (i+1)*BlkPtr.bs])
+                print(bp, bp.checksum, bp.prop)
 
     def desc(self):
         assert self.prop.type != 0, "BLKPTR Type is 0"
@@ -90,9 +157,6 @@ class BlkPtr:
 
         dva = self.dva[0].desc(self.lsize, self.psize)
         return f"[L{self.lvl} {self.prop.type} {dva}]"
-
-    def get_checksum(self):
-        return ":".join([f"{int(x):x}" for x in self.fields[-4:]])
 
     def show(self):
         print(self.desc())

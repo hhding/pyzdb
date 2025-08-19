@@ -115,7 +115,7 @@ class DMUObjectCommon:
         if sys.stdout.isatty():
             print(f"dump_raw: length: {len(self.data):x}, redirect or pipe to output data")
         else:
-            return os.write(1, self.data)
+            return std_write(self.data)
 
     def get_bonus_data(self):
         start = 64 + 128
@@ -218,7 +218,7 @@ class DMUObject(DMUObjectCommon):
         debug_print1("=========== raw_data start ============", DEBUG_ZFS_OBJECT)
         for blk in self.iter_blks():
             debug_print4(f"Dump_uint8: Fetching {blk.vdev}:{blk.offset:x}:{len(blk.buf):x}", DEBUG_ZFS_OBJECT)
-            os.write(1, blk.buf)
+            std_write(blk.buf)
         debug_print1("=========== raw_data end ============", DEBUG_ZFS_OBJECT)
 
     def dump_dsl_dataset(self, buf=None):
@@ -349,11 +349,19 @@ class DMUObjset(DMUObjectCommon):
                 if obj.prop.dn_type != 0:
                     yield obj_id + i, obj
 
+# This script always starts from objset,
+# as dump other objects also depends on objset itself.
+#
+# 从对象 objset 开始，可以找到所有对象，步骤如下：
+# 逐级读取 objset->bps 数据块(L2->L1->L0 这样)
+# 每个数据块大小 16K：32 个对象（512 字节）
+# 参考上面的 iter_objects
+
 def parse_arg():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--file")
-    parser.add_argument("--obj_id", type=int, default=0)
-    parser.add_argument("--raw", action='store_true')
+    parser.add_argument("--file", metavar="mos", help="path to objset data, default is stdin")
+    parser.add_argument("--obj_id", metavar="0", help="object id, default 0 is objset itself", type=int, default=0)
+    parser.add_argument("--raw", help="dump as raw data", action='store_true')
     args = parser.parse_args()
     return args
 
